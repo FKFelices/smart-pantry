@@ -1,10 +1,14 @@
 import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold, useFonts } from '@expo-google-fonts/inter';
+import { Feather, Ionicons } from '@expo/vector-icons'; // <-- ADDED VECTOR ICONS
 import * as Haptics from 'expo-haptics';
+import { Stack } from 'expo-router';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Keyboard, LayoutAnimation, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
+
 import EmptyState from '../components/EmptyState';
 import RecipeCard from '../components/RecipeCard';
 import RecipeModal from '../components/RecipeModal';
@@ -40,27 +44,49 @@ export default function EngineScreen() {
     return () => unsubscribeAuth();
   }, []);
 
-  useEffect(() => {
-    if (currentInput.trim().length < 2) return setSuggestions([]);
+useEffect(() => {
+    let ignore = false;
+
+    if (currentInput.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    
     const delayDebounceFn = setTimeout(async () => {
       try {
         const data = await getAutocompleteSuggestions(currentInput);
-        if (Array.isArray(data)) setSuggestions(data);
-      } catch (error) { console.error(error); }
+        if (!ignore && Array.isArray(data)) {
+          setSuggestions(data);
+        }
+      } catch (error) { 
+        console.error(error); 
+      }
     }, 500);
-    return () => clearTimeout(delayDebounceFn);
+
+    return () => {
+      ignore = true;
+      clearTimeout(delayDebounceFn);
+    };
   }, [currentInput]);
 
   useEffect(() => {
     if (!userId) return;
     const pantryQuery = query(collection(db, 'users', userId, 'pantry'), orderBy('createdAt', 'desc'));
     const unsubscribeDB = onSnapshot(pantryQuery, (snapshot) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setPantryItems(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
     return () => unsubscribeDB();
   }, [userId]);
 
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
   const handleSaveItem = async (exactName?: string) => {
+    Keyboard.dismiss();
     const rawInput = (exactName || currentInput).trim().toLowerCase();
     if (rawInput === '' || !userId) return;
 
@@ -96,7 +122,7 @@ export default function EngineScreen() {
     setIsClearModalVisible(true);
   };
 
-const executeClearPantry = async () => {
+  const executeClearPantry = async () => {
     setIsClearModalVisible(false); 
     if (!userId) return;
     try {
@@ -159,7 +185,9 @@ const executeClearPantry = async () => {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <Stack.Screen options={{ headerShown: false }} />
+
       <View style={styles.headerContainer}>
         <Text style={styles.headerTitle}>Dashboard</Text>
         <Text style={styles.subtitle}>What's in your kitchen?</Text>
@@ -174,6 +202,7 @@ const executeClearPantry = async () => {
             value={currentInput} 
             onChangeText={setCurrentInput} 
             onSubmitEditing={() => handleSaveItem()} 
+            returnKeyType="done"
           />
           <TouchableOpacity 
             style={[styles.premiumAddButton, { backgroundColor: editingId ? COLORS.warning : COLORS.secondary }]} 
@@ -207,26 +236,54 @@ const executeClearPantry = async () => {
         {pantryItems.map((item) => (
           <View key={item.id} style={styles.floatingTag}>
             <Text style={styles.pantryTagText}>{item.name}</Text>
-            <TouchableOpacity onPress={() => triggerEdit(item)} style={styles.tagIcon}><Text>✏️</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.tagIcon}><Text>❌</Text></TouchableOpacity>
+            {/* REPLACED EMOJIS WITH FEATHER ICONS */}
+            <TouchableOpacity onPress={() => triggerEdit(item)} style={styles.tagIcon}>
+              <Feather name="edit-2" size={14} color="#6B7280" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={[styles.tagIcon, { marginLeft: 4 }]}>
+              <Feather name="x" size={16} color="#EF4444" />
+            </TouchableOpacity>
           </View>
         ))}
       </View>
 
-      <TouchableOpacity style={styles.floatingSearchButton} onPress={searchRecipes} disabled={isSearching}>
-        {isSearching ? <ActivityIndicator color="#fff" /> : <Text style={styles.searchBtnText}>✨ Find Recipes</Text>}
-      </TouchableOpacity>
+      <Pressable 
+        style={({ pressed }) => [
+          styles.floatingSearchButton,
+          pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 } 
+        ]} 
+        onPress={searchRecipes} 
+        disabled={isSearching}
+      >
+        {isSearching ? (
+          <ActivityIndicator color="#fff" /> 
+        ) : (
+          <View style={styles.searchBtnContent}>
+            {/* REPLACED EMOJI WITH IONICON */}
+            <Ionicons name="sparkles" size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.searchBtnText}>Find Recipes</Text>
+          </View>
+        )}
+      </Pressable>
 
       <FlatList
         data={apiRecipes}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => <RecipeCard item={item} onPress={() => fetchRecipeDetails(item.id)} />}
+        renderItem={({ item }) => <RecipeCard item={item} pantryItems={pantryItems} onPress={() => fetchRecipeDetails(item.id)} />}
         ListEmptyComponent={<EmptyState />} 
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled" 
+        keyboardDismissMode="on-drag"
       />
 
-      <RecipeModal visible={modalVisible} recipe={selectedRecipe} isFetching={isFetchingDetails} onClose={() => { setModalVisible(false); setSelectedRecipe(null); }} />
+      <RecipeModal 
+        visible={modalVisible} 
+        recipe={selectedRecipe} 
+        isFetching={isFetchingDetails} 
+        pantryItems={pantryItems} 
+        onClose={() => { setModalVisible(false); setSelectedRecipe(null); }} 
+      />
 
       <Modal visible={isClearModalVisible} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
@@ -247,22 +304,21 @@ const executeClearPantry = async () => {
       </Modal>
       
       <Toast />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 50, backgroundColor: '#F8F9FA', maxWidth: 600, width: '100%', alignSelf: 'center' },
-  
-  headerContainer: { marginBottom: 25, alignItems: 'center' },
+  container: { flex: 1, paddingHorizontal: 20, backgroundColor: '#F8F9FA', maxWidth: 600, width: '100%', alignSelf: 'center' },
+  headerContainer: { marginBottom: 25, alignItems: 'center', marginTop: 10 },
   headerTitle: { fontFamily: 'Inter_700Bold', fontSize: 32, color: '#1A1A1A', letterSpacing: -0.5, textAlign: 'center' },
   subtitle: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#666', marginTop: 4, textAlign: 'center' },
   
   inputContainer: { zIndex: 10, marginBottom: 25 }, 
   floatingInputBox: { 
     flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 6,
-    borderWidth: 1, borderColor: '#F0F0F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 5 
+    // SOFT SHADOW UPGRADE
+    shadowColor: '#171717', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 
   },
   seamlessInput: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 16, paddingHorizontal: 15, color: '#1A1A1A' },
   premiumAddButton: { paddingHorizontal: 24, paddingVertical: 12, justifyContent: 'center', borderRadius: 12 },
@@ -270,10 +326,9 @@ const styles = StyleSheet.create({
   
   floatingDropdown: { 
     backgroundColor: '#FFFFFF', borderRadius: 16, marginTop: 8, 
-    borderWidth: 1, borderColor: '#F0F0F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4 
+    shadowColor: '#171717', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 
   },
-  suggestionItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  suggestionItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   suggestionText: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#1A1A1A' },
   
   pantryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 15 },
@@ -283,31 +338,30 @@ const styles = StyleSheet.create({
   
   pantryTagContainer: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15, zIndex: 1 },
   floatingTag: { 
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', 
-    paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, marginRight: 10, marginBottom: 10,
-    borderWidth: 1, borderColor: '#F0F0F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2
+    flexDirection: 'row', alignItems: 'center', 
+    backgroundColor: '#E5E7EB', // SOFTER BACKGROUND, NO BORDER
+    paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, marginRight: 8, marginBottom: 10,
   },
-  pantryTagText: { fontFamily: 'Inter_600SemiBold', color: '#1A1A1A', fontSize: 15, marginRight: 8 },
-  tagIcon: { paddingHorizontal: 4 },
+  pantryTagText: { fontFamily: 'Inter_600SemiBold', color: '#1F2937', fontSize: 14, marginRight: 8 },
+  tagIcon: { paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' },
   
   floatingSearchButton: { 
     backgroundColor: COLORS.primary, paddingVertical: 18, borderRadius: 16, alignItems: 'center', marginBottom: 25,
-    shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 
+    shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 5 
   },
+  searchBtnContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   searchBtnText: { fontFamily: 'Inter_700Bold', color: '#FFFFFF', fontSize: 18 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   confirmBox: { 
-    backgroundColor: COLORS.surface, borderRadius: 16, padding: 25, width: '100%', maxWidth: 350, 
-    borderWidth: 1, borderColor: '#F0F0F0',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 5 
+    backgroundColor: COLORS.surface || '#FFF', borderRadius: 16, padding: 25, width: '100%', maxWidth: 350, 
+    shadowColor: '#171717', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 5 
   },
-  confirmTitle: { fontFamily: 'Inter_700Bold', fontSize: 20, color: COLORS.text, marginBottom: 10 },
-  confirmText: { fontFamily: 'Inter_400Regular', fontSize: 15, color: COLORS.textMuted, lineHeight: 22, marginBottom: 25 },
+  confirmTitle: { fontFamily: 'Inter_700Bold', fontSize: 20, color: COLORS.text || '#1A1A1A', marginBottom: 10 },
+  confirmText: { fontFamily: 'Inter_400Regular', fontSize: 15, color: '#6B7280', lineHeight: 22, marginBottom: 25 },
   confirmButtonRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f1f1' },
-  dangerBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: COLORS.danger },
-  cancelBtnText: { fontFamily: 'Inter_600SemiBold', color: COLORS.text, fontSize: 15 },
+  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#F3F4F6' },
+  dangerBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: COLORS.danger || '#EF4444' },
+  cancelBtnText: { fontFamily: 'Inter_600SemiBold', color: '#1F2937', fontSize: 15 },
   dangerBtnText: { fontFamily: 'Inter_600SemiBold', color: '#fff', fontSize: 15 },
 });

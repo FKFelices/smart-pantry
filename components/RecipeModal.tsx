@@ -2,17 +2,19 @@ import React from 'react';
 import { ActivityIndicator, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
+import { checkIngredientMatch } from '../utils/matchingEngine';
 
 interface RecipeModalProps {
   visible: boolean;
   recipe: any;
   isFetching: boolean;
+  pantryItems: { name: string }[]; // <-- NEW PROP
   onClose: () => void;
 }
 
-export default function RecipeModal({ visible, recipe, isFetching, onClose }: RecipeModalProps) {
+export default function RecipeModal({ visible, recipe, isFetching, pantryItems, onClose }: RecipeModalProps) {
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.container} edges={['top']}>
         {isFetching || !recipe ? (
           <View style={styles.loadingContainer}>
@@ -33,12 +35,21 @@ export default function RecipeModal({ visible, recipe, isFetching, onClose }: Re
 
                 <View style={styles.floatingCard}>
                   <Text style={styles.sectionTitle}>Ingredients</Text>
-                  {recipe.extendedIngredients?.map((ing: any, index: number) => (
-                    <View key={index} style={styles.ingredientRow}>
-                      <Text style={styles.bullet}>•</Text>
-                      <Text style={styles.ingredient}>{ing.original}</Text>
-                    </View>
-                  ))}
+                  {recipe.extendedIngredients?.map((ing: any, index: number) => {
+                    // SMART MATCHER IN ACTION
+                    const hasIt = checkIngredientMatch(pantryItems, ing.name || ing.original);
+                    
+                    return (
+                      <View key={index} style={styles.ingredientRow}>
+                        <Text style={[styles.bullet, { color: hasIt ? COLORS.success : '#D1D5DB' }]}>
+                          {hasIt ? '✓' : '○'}
+                        </Text>
+                        <Text style={[styles.ingredient, { color: hasIt ? '#1A1A1A' : '#6B7280', fontFamily: hasIt ? 'Inter_600SemiBold' : 'Inter_400Regular' }]}>
+                          {ing.original}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
 
                 <View style={styles.floatingCard}>
@@ -104,8 +115,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: 'Inter_700Bold', fontSize: 20, color: '#1A1A1A', marginBottom: 15 },
   
   ingredientRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, paddingRight: 10 },
-  bullet: { fontFamily: 'Inter_700Bold', fontSize: 16, color: COLORS.primary, marginRight: 10, marginTop: 2 },
-  ingredient: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#333', lineHeight: 24, flex: 1 },
+  bullet: { fontFamily: 'Inter_700Bold', fontSize: 16, marginRight: 10, marginTop: 2 },
+  ingredient: { fontSize: 16, lineHeight: 24, flex: 1 },
   instructionText: { fontFamily: 'Inter_400Regular', fontSize: 16, color: '#444', lineHeight: 26 },
 
   floatingSourceButton: { 

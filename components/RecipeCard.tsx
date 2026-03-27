@@ -1,15 +1,28 @@
 import React from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../constants/theme';
+import { checkIngredientMatch } from '../utils/matchingEngine';
 
 interface RecipeCardProps {
   item: any;
+  pantryItems: { name: string }[]; // <-- NEW PROP
   onPress: () => void;
 }
 
-export default function RecipeCard({ item, onPress }: RecipeCardProps) {
-  const totalIngredients = item.usedIngredientCount + item.missedIngredientCount;
-  const matchPercentage = totalIngredients > 0 ? Math.round((item.usedIngredientCount / totalIngredients) * 100) : 0;
+export default function RecipeCard({ item, pantryItems, onPress }: RecipeCardProps) {
+  // 1. Combine all ingredients the API returned
+  const allIngredients = [
+    ...(item.usedIngredients || []), 
+    ...(item.missedIngredients || [])
+  ];
+
+  // 2. Run them through our Smart Matcher instead of trusting the API
+  const customHave = allIngredients.filter(ing => checkIngredientMatch(pantryItems, ing.name));
+  const customMissing = allIngredients.filter(ing => !checkIngredientMatch(pantryItems, ing.name));
+
+  // 3. Recalculate the true match percentage based on SMART matching
+  const totalIngredients = allIngredients.length;
+  const matchPercentage = totalIngredients > 0 ? Math.round((customHave.length / totalIngredients) * 100) : 0;
 
   return (
     <TouchableOpacity activeOpacity={0.8} style={styles.card} onPress={onPress}>
@@ -22,10 +35,21 @@ export default function RecipeCard({ item, onPress }: RecipeCardProps) {
             {matchPercentage}% Match
           </Text>
         </View>
-        <Text style={styles.details}><Text style={styles.haveText}>Have: </Text>{item.usedIngredients.map((i: any) => i.name).join(', ')}</Text>
-        {item.missedIngredientCount > 0 && (
-          <Text style={styles.details}><Text style={styles.missedText}>Missing: </Text>{item.missedIngredients.map((i: any) => i.name).join(', ')}</Text>
+        
+        {customHave.length > 0 && (
+          <Text style={styles.details}>
+            <Text style={styles.haveText}>Have: </Text>
+            {customHave.map((i: any) => i.name).join(', ')}
+          </Text>
         )}
+        
+        {customMissing.length > 0 && (
+          <Text style={styles.details}>
+            <Text style={styles.missedText}>Missing: </Text>
+            {customMissing.map((i: any) => i.name).join(', ')}
+          </Text>
+        )}
+        
         <Text style={styles.tapToView}>Tap to view full recipe 👆</Text>
       </View>
     </TouchableOpacity>
